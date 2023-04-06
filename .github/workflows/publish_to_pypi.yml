@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   main:
-    name: Publish artifacts
+    name: Publish Artifacts
     runs-on: ubuntu-latest
 
     steps:
