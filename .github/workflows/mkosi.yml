@@ -11,69 +11,38 @@ permissions:
   contents: read
 
 jobs:
-  ci:
+  main:
     runs-on: ubuntu-22.04
-    concurrency:
-      group: ${{ github.workflow }}-${{ matrix.distro }}-${{ matrix.release }}-${{ github.ref }}
-      cancel-in-progress: true
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - distro: arch
-            release: rolling
-          - distro: debian
-            release: testing
-          - distro: ubuntu
-            release: jammy
-          - distro: fedora
-            release: "37"
-          - distro: fedora
-            release: rawhide
-          - distro: opensuse
-            release: tumbleweed
-          - distro: centos
-            release: "9"
-          - distro: centos
-            release: "8"
 
     steps:
     - uses: actions/checkout@v3
-      with:
-        repository: 'systemd/pystemd'
 
-    - uses: systemd/mkosi@af1fe54805c84bb09e80bb585399121946fec701
+    - name: install podman
+      run: sudo apt-get install podman debootstrap systemd-container
 
-    - name: Configure
+    - name: runing ps
+      run: sudo ps auxf
+
+    - name: tetsing systemd
+      run: sudo systemctl status
+
+    - name: testing nspawn
+      run: systemd-nspawn --help
+
+    - name: build debian
+      run: mkdir /opt/debian && sudo debootstrap --include 'dbus,vim' unstable /opt/debian
+
+    - name: runing nspawn
+      timeout-minutes: 1
+      run: sudo systemd-run --unit tect.service systemd-nspawn --boot -D /opt/debian --machine testc
+
+    - name: wait for container boot
+      timeout-minutes: 1
       run: |
-        tee mkosi.conf <<- EOF
-        [Distribution]
-        Distribution=${{ matrix.distro }}
-        Release=${{ matrix.release }}
-        SecureBoot=yes
+        while ! sudo systemd-run --tty --machine testc /bin/true 
+        do  
+            sudo systemctl status tect.service
+        done
 
-        [Content]
-        Environment=CI_BUILD=1
-                    DEFAULT_TIMEOUT_SEC=90
-
-        [Output]
-        KernelCommandLineExtra=systemd.unit=mkosi-check-and-shutdown.service
-                               systemd.journald.max_level_console=debug
-                               # udev's debug log output is very verbose, so up it to info in CI.
-                               udev.log_level=info
-        EOF
-
-    - name: Generate secure boot key
-      run: mkosi genkey
-
-    - name: Build ${{ matrix.distro }}
-      run: mkosi
-
-    - name: Show ${{ matrix.distro }} image summary
-      run: mkosi summary
-
-    - name: Boot ${{ matrix.distro }} systemd-nspawn
-      run: sudo mkosi boot
-
-    - name: Check ${{ matrix.distro }} systemd-nspawn
-      run: sudo mkosi shell bash -c "[[ -e /testok ]] || { cat /failed-services; exit 1; }"
+    - name: exec command
+      run: sudo systemd-run --tty --machine testc python3 /opt/rel.py
